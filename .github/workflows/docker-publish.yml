@@ -7,17 +7,28 @@ name: Docker
 
 on:
   push:
-    branches: [ "master" ]
+    branches: ["master"]
 env:
   REGISTRY: registry.docker.com
   REGISTRY_USERNAME: cruzio
 jobs:
   build:
-
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - dockerfile: Dockerfile.bionic
+            tag_name: bionic
+            tag_ver: 18.04
+          - dockerfile: Dockerfile.focal
+            tag_name: focal
+            tag_ver: 20.04
+          - dockerfile: Dockerfile.jammy
+            tag_name: jammy
+            tag_ver: 22.04
     permissions:
       contents: read
-      packages: write
       # This is used to complete the identity challenge
       # with sigstore/fulcio when running outside of PRs.
       id-token: write
@@ -26,6 +37,13 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v3
 
+      # Install the cosign tool except on PR
+      # https://github.com/sigstore/cosign-installer
+      - name: Install cosign
+        if: github.event_name != 'pull_request'
+        uses: sigstore/cosign-installer@f3c664df7af409cb4873aa5068053ba9d61a57b6 #v2.6.0
+        with:
+          cosign-release: "v1.11.0"
 
       # Workaround: https://github.com/docker/build-push-action/issues/461
       - name: Setup Docker buildx
@@ -41,37 +59,38 @@ jobs:
           username: ${{ env.REGISTRY_USERNAME }}
           password: ${{ secrets.REGISTRY_TOKEN }}
 
+      - name: Extract metadata (tags, labels) for Docker
+        id: meta
+        uses: docker/metadata-action@98669ae865ea3cffbcbaa878cf57c20bbf1c6c38
+        with:
+          images: lambdastack
+          tags: |
+            type=raw,${{ matrix.tag_name }}
+            type=raw,${{ matrix.tag_ver }}
+
       # Build and push Docker image with Buildx (don't push on PR)
       # https://github.com/docker/build-push-action
-      - name: Build and push Ubuntu bionic image
+      - name: Build and push Docker image
         id: build-and-push
         uses: docker/build-push-action@ac9327eae2b366085ac7f6a2d02df8aa8ead720a
         with:
           context: .
-          file: Dockerfile.bionic
+          file: ${{ matrix.dockerfile }}
           push: ${{ github.event_name != 'pull_request' }}
-          tags: lambdastack:bionic,lambdastack:18.04
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Build and push Ubuntu focal image
-        id: build-and-push
-        uses: docker/build-push-action@ac9327eae2b366085ac7f6a2d02df8aa8ead720a
-        with:
-          context: .
-          file: Dockerfile.focal
-          push: ${{ github.event_name != 'pull_request' }}
-          tags: lambdastack:focal,lambdastack:20.04
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Build and push Ubuntu jammy image
-        id: build-and-push
-        uses: docker/build-push-action@ac9327eae2b366085ac7f6a2d02df8aa8ead720a
-        with:
-          context: .
-          file: Dockerfile.jammy
-          push: ${{ github.event_name != 'pull_request' }}
-          tags: lambdastack:jammy,lambdastack:22.04
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+      # Sign the resulting Docker image digest except on PRs.
+      # This will only write to the public Rekor transparency log when the Docker
+      # repository is public to avoid leaking data.  If you would like to publish
+      # transparency data even for private images, pass --force to cosign below.
+      # https://github.com/sigstore/cosign
+      - name: Sign the published Docker image
+        if: ${{ github.event_name != 'pull_request' }}
+        env:
+          COSIGN_EXPERIMENTAL: "true"
+        # This step uses the identity token to provision an ephemeral certificate
+        # against the sigstore community Fulcio instance.
+        run: echo "${{ steps.meta.outputs.tags }}" | xargs -I {} cosign sign {}@${{ steps.build-and-push.outputs.digest }}
