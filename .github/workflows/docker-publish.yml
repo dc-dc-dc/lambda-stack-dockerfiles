@@ -51,7 +51,7 @@ jobs:
 
       # Build and push Docker image with Buildx (don't push on PR)
       # https://github.com/docker/build-push-action
-      - name: Build and push Docker image
+      - name: Build and push Ubuntu bionic image
         id: build-and-push
         uses: docker/build-push-action@ac9327eae2b366085ac7f6a2d02df8aa8ead720a
         with:
@@ -62,6 +62,27 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      - name: Build and push Ubuntu focal image
+        id: build-and-push
+        uses: docker/build-push-action@ac9327eae2b366085ac7f6a2d02df8aa8ead720a
+        with:
+          context: .
+          file: Dockerfile.focal
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ env.REGISTRY_USERNAME }}/lambdastack:focal,${{ env.REGISTRY_USERNAME }}/lambdastack:20.04
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push Ubuntu jammy image
+        id: build-and-push
+        uses: docker/build-push-action@ac9327eae2b366085ac7f6a2d02df8aa8ead720a
+        with:
+          context: .
+          file: Dockerfile.jammy
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ env.REGISTRY_USERNAME }}/lambdastack:jammy,${{ env.REGISTRY_USERNAME }}/lambdastack:22.04
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
       # Sign the resulting Docker image digest except on PRs.
       # This will only write to the public Rekor transparency log when the Docker
