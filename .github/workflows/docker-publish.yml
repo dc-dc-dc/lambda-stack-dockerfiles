@@ -8,7 +8,9 @@ name: Docker
 on:
   push:
     branches: [ "master" ]
-
+env:
+  REGISTRY: registry.docker.com
+  REGISTRY_USERNAME: cruzio
 jobs:
   build:
 
